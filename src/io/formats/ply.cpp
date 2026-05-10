@@ -412,10 +412,10 @@ namespace lfs::io {
             __cpuid(cpuInfo, 7);
             has_avx2 = (cpuInfo[1] & (1 << 5)) != 0;
 #elif defined(__GNUC__) || defined(__clang__)
-            __builtin_cpu_init();
-            has_avx2 = __builtin_cpu_supports("avx2");
+                __builtin_cpu_init();
+                has_avx2 = __builtin_cpu_supports("avx2");
 #else
-            has_avx2 = false;
+                has_avx2 = false;
 #endif
         });
 
@@ -586,6 +586,27 @@ namespace lfs::io {
 
             auto [data_offset, layout] = parse_result.value();
             const char* vertex_data = data + data_offset;
+
+            if (layout.vertex_stride == 0) {
+                std::string error_msg = "PLY header declares no float vertex properties";
+                LOG_ERROR("{}", error_msg);
+                throw std::runtime_error(error_msg);
+            }
+
+            const size_t body_bytes_available = file_size - data_offset;
+            const size_t body_bytes_required = layout.vertex_count * layout.vertex_stride;
+            if (body_bytes_required > body_bytes_available) {
+                const size_t missing = body_bytes_required - body_bytes_available;
+                const size_t complete_vertices = body_bytes_available / layout.vertex_stride;
+                std::string error_msg = std::format(
+                    "PLY file is truncated: header declares {} vertices ({} bytes/vertex = {} bytes), "
+                    "but file body has only {} bytes ({} complete vertices). Missing {} bytes (~{} MB). "
+                    "Re-export or re-download the source file.",
+                    layout.vertex_count, layout.vertex_stride, body_bytes_required,
+                    body_bytes_available, complete_vertices, missing, missing / (1024 * 1024));
+                LOG_ERROR("{}", error_msg);
+                throw std::runtime_error(error_msg);
+            }
 
             LOG_INFO("Extracting {} Gaussians from PLY", layout.vertex_count);
 
